@@ -28,6 +28,8 @@
 		}
 
 		p {
+			font-family: sans-serif;
+			font-size: 9pt;
 			margin: 0.1em 0.6em;
 		}
 
@@ -102,16 +104,23 @@
 			font-size: 10pt;
 			padding: 0 0.4em;
 		}
+
+		.button {
+			border: none;
+			color: black;
+			padding: 8px 12px;
+			text-align: center;
+			text-decoration: none;
+			display: inline-block;
+			font-size: 14px;
+			margin: 4px 2px;
+			cursor: pointer;
+			border-radius: 8px;
+		}
 	</style>
 </head>
 
 <body>
-
-
-
-
-
-
 	<table class="introTable" border="0">
 		<tr>
 			<td rowspan="2">
@@ -124,7 +133,9 @@
 			</td>
 		</tr>
 	</table>
-
+	<div>
+		<input type="button" class="button" onclick="resetForm()" value="Reset">
+	</div>
 	<div id="mainContent">
 		<div id="modelOutput"></div>
 		<div id="commentOutput">
@@ -132,27 +143,45 @@
 				<div class="itemHeader">Paste this into the call log</div>
 				<fieldset class="cc">
 					<legend>Subject</legend>
-					<div id="outSubject" contenteditable="true" tabindex="-97"></div>
+					<div id="outSubject" contenteditable="false" tabindex="-97"></div>
 				</fieldset>
 				<fieldset class="cc">
 					<legend>Comments</legend>
-					<div id="outComments" contenteditable="true" tabindex="-98"></div>
+					<div id="outComments" contenteditable="false" tabindex="-98"></div>
 				</fieldset>
 			</div>
 		</div>
 	</div>
 	<div>
-		<input type="button" onclick="resetForm()" value="Reset">
+		<input type="button" class="button" onclick="resetForm()" value="Reset">
 	</div>
 
 	<script>
+		var globals = {
+
+			// Tells the script to add a <br> after each radio button to display them vertically when true.
+			//   Currently set to true when a fieldset contains more than 2 radio buttons.
+			radioButtonsVertical: false,
+			// modelItemsCount: 2
+
+			// «outputData» is an object that stores the output of each branch by ID. That way the subject
+			//   and comments fields can be updated each time a form action is chosen, and if a user backtracks
+			//   the data from branches that are no longer valid can be automatically removed, eliminating the
+			//   chance of unintended data indavertently remaining.
+			outputData: {},
+
+		}
+
+		/**
+		 * Resets the form
+		 */
 		function resetForm() {
 			window.location.reload(true);
 		}
 
 		// builds radio elements, called when buildModel() process a path with objectType radio
 		function radioEl(label, name, id, val, action, disabled) {
-			return (`<input type="radio" name="${name}" value="${val}" class="radio" onChange="${action}"> ${label}${globals.radioButtonsVertical ? `<br>` : ``}`);
+			return (`<input type="radio" name="${name}" value="${val}" class="radio" onChange="${action}"> ${label} ${globals.radioButtonsVertical ? `<br>` : ``}`);
 		}
 
 		// Builds select form elements, called when buildModel() process a path with objectType select.
@@ -181,7 +210,7 @@
 
 		// builds datePicker fields, called when buildModel() process a path with objectType datePickerEl
 		function datePickerEl(id, action, disabled) {
-			return (`<input id="${id}" type="date" onChange="${action}" ${sOptions[option].disabled ? `disabled` : ``}>`);
+			return (`<input id="${id}" type="date" min="2020-01-01" max="2025-12-31" onChange="${action}" ${disabled ? `disabled` : ``}>`);
 		}
 
 		// builds checkbox elements, called when buildModel() process a path with objectType checkbox
@@ -189,168 +218,99 @@
 			return (`<input type="checkbox" name="${name}" value="${val}" class="checkbox" onChange="${action}"> ${label}${globals.radioButtonsVertical ? `<br>` : ``}`);
 		}
 
+		/* 
+		* receives data from a form action and distributes that data to the appropriate functions
+		*/
+		function handleAction(sequence, theData, dataDestination) {
+			try {
+				// save the data for output into comments or subject
+				saveData(sequence, model[sequence - 1].id, theData, dataDestination, model[sequence - 1].elementType);
 
+				if (sequence == Object.keys(model).length) {
+					// refresh the subject and comments fields with all the current data in «globals.outputData»
+					updateOutput();
+					return;
+				}
+				/* Show next element in the sequence until next elements has no dependency parent and 
+				if next element is optional show until next element is not optional */
+				for (i = sequence; i < Object.keys(model).length; i++) {
+					// child element is already displayed based on parent selection and element that has no parent and optional elements should be displayed					
+					if (!model[i].parent) {
+						window[model[i].id].style.display = 'block';
 
+						if (model[i].optional && model[i].optional) {
+							continue;
+						}
+						break;
+					}
+				}
 
+				// children elements dependent on parent selection for radio/checkbox element selected options
+				if ((model[sequence - 1].elementType == "radio" || model[sequence - 1].elementType == "checkbox") && Object.keys(model[sequence - 1].children).length > 0) {
 
-		function backtrackCheck(thisBranchId, objectType) {
-			// hide all of the branches listed in this array after the index of this ID and trigger the functions that clear their data.
-			if (objectType && objectType == 'checkbox') {
-				// checkbox selection may be changed after displaying elements after the checbox element.
-			} else {
-				if (globals.branchesRevealed.indexOf(thisBranchId) >= 0) {
-					// show  question 12. Does the Case have any high-risk household contacts? (Only if Q2 – Case is selected) - id: 'caseHighRiskHouseholdContacts',
-					// question 2 name: 'interviewCaseOrContact',
-					let interviewCaseOrContactRadios = document.getElementsByName('interviewCaseOrContact');
+					let currentSelectionRadios = document.getElementsByName(model[sequence - 1].id);
 
-					let blnInterviewCase = false;
-					for (let i = 0; i < interviewCaseOrContactRadios.length; i++) {
-						if (interviewCaseOrContactRadios[i].checked) {
+					let currentSelectionRadioVal = null;
+					for (let i = 0; i < currentSelectionRadios.length; i++) {
+						if (currentSelectionRadios[i].checked) {
 							// checked radio
-							if (interviewCaseOrContactRadios[i].value == "Case") {
-								blnInterviewCase = true;
-							}
+							currentSelectionRadioVal = currentSelectionRadios[i].value;
 							break;
 						}
 					}
 
-					let indexOfThisBranchId = globals.branchesRevealed.indexOf(thisBranchId);
-					for (let i = indexOfThisBranchId + 1; i < globals.branchesRevealed.length; i++) {
-						if (blnInterviewCase && window[globals.branchesRevealed[i]].id == "caseHighRiskHouseholdContacts") {
-
-						} else {
-
-							// clear the question previous selections (reload model element in div???)
-							for (item in model) {
-								if (model[item].id == globals.branchesRevealed[i]) {
-									let itemHtml = getModelItemHtml(item);
-
-									window[globals.branchesRevealed[i]].innerHTML = itemHtml;
-									break;
-								}
-							}
-
-							// hide the question
-							window[globals.branchesRevealed[i]].style.display = 'none';
-
-							// delete the question ouptput data
-							delete globals.outputData[globals.branchesRevealed[i]];
-						}
-					}
-				}
-			}
-		}
-
-		// takes the value «theData» of a form element in a branch «thisBranchId», tags it to be delivered
-		//   to either the "subject" field or the "comments" field «dataDestination», and stores it in
-		//   «globals.outputData.«thisBranchId»»
-		function saveData(thisBranchId, theData, dataDestination, objectType) {
-			/*
-			globals.outputData[thisBranchId] = {
-				[dataDestination]: theData
-			} */
-
-			if (objectType && objectType == 'checkbox') {
-
-				// check box data already selected
-				if (globals.outputData[thisBranchId]) {
-					/*globals.outputData[thisBranchId] = {
-						[dataDestination]: theData
-					}*/
-					// globals.outputData[thisBranchId][dataDestination] = globals.outputData[thisBranchId][dataDestination] + ", " + theData;
-					const checkboxes = document.querySelectorAll(`input[name="${thisBranchId}"]:checked`);
-					// let dataDestinationStr = thisBranchId +" : ";
-					let dataDestinationStr = theData.substring(0, theData.indexOf(":") + 2);
-					checkboxes.forEach((checkbox) => {
-						dataDestinationStr = dataDestinationStr + checkbox.value + ", ";
-					});
-
-					globals.outputData[thisBranchId][dataDestination] = dataDestinationStr.substring(0, dataDestinationStr.length - 2);
-				} else {
-					globals.outputData[thisBranchId] = {
-						[dataDestination]: theData
-					}
-				}
-
-			} else {
-				globals.outputData[thisBranchId] = {
-					[dataDestination]: theData
-				}
-			}
-
-		}
-
-		// reveals a hidden branch of the decision tree, called 
-		function revealBranch(newBranchId) {
-			if (newBranchId) {
-				/*
-				window[newBranchId].style.display = 'block';
-				globals.branchesRevealed.push(newBranchId);
-				*/
-				if (globals.branchesRevealed.indexOf(newBranchId) >= 0) {
-					let indexOfNewBranchId = globals.branchesRevealed.indexOf(newBranchId);
-					window[globals.branchesRevealed[indexOfNewBranchId]].style.display = 'block';
-				} else {
-					window[newBranchId].style.display = 'block';
-					globals.branchesRevealed.push(newBranchId);
-				}
-
-			}
-		}
-
-		// refresh the subject and comments fields with all the current data in «globals.outputData»
-		function updateOutput() {
-			outSubject.innerHTML = '';
-			outComments.innerHTML = '';
-			for (response in globals.outputData) {
-				if (globals.outputData[response].comments) {
-					// outComments.innerHTML += `#${globals.outputData[response].comments}|<br>`;
-					outComments.innerHTML += `${globals.outputData[response].comments}|<br>`;
-				} else if (globals.outputData[response].subject) {
-					// outSubject.innerHTML = `#${globals.outputData[response].subject}|`;
-					outSubject.innerHTML = `${globals.outputData[response].subject}|`;
-				}
-			}
-		}
-
-
-		// receives data from a form action and distributes that data to the appropriate functions 
-		function handleAction(thisBranchId, newBranchId, theData, dataDestination, objectType) {
-			try {
-				// first check to see if we need to remove anything due to backtracking
-				backtrackCheck(thisBranchId, objectType);
-				// then save the data for output
-				saveData(thisBranchId, theData, dataDestination, objectType);
-
-				// then display the new branch and add it to branchesRevealed for future backtracking protection
-				var newBranchIds = newBranchId.split(',');
-				if (newBranchIds.length > 1) {
-					newBranchIds.forEach(branchId => {
-						if (branchId) {
-							// show  question 12. Does the Case have any high-risk household contacts? (Only if Q2 – Case is selected) - id: 'caseHighRiskHouseholdContacts',
-							// question 2 name: 'interviewCaseOrContact',
-							let interviewCaseOrContactRadios = document.getElementsByName('interviewCaseOrContact');
-
-							let blnInterviewCase = false;
-							for (let i = 0; i < interviewCaseOrContactRadios.length; i++) {
-								if (interviewCaseOrContactRadios[i].checked) {
-									// checked radio
-									if (interviewCaseOrContactRadios[i].value == "Case") {
-										blnInterviewCase = true;
-									}
-									break;
-								}
-							}
-
-							if (!blnInterviewCase && branchId.trim() == "caseHighRiskHouseholdContacts") {
-
+					// hide children
+					// hide heirarchy chidren dependents also based on choice for radio/checkbox options???? As of now use in the first parent...
+					(model[sequence - 1].children).forEach(ele => {
+						childEle = document.getElementById(ele.childId);
+						if (childEle) {
+							// for check box options don't reload the child if the checkbox options are already selected.
+							if (currentSelectionRadioVal && model[sequence - 1].elementType == "checkbox") {
+								// check box options selected, don't hide chidren.
 							} else {
-								revealBranch(branchId.trim());
+								// hide the dependency child in the next step depending on the parent selection child element is displayed								
+								/*childEle.style.display = 'none';
+
+								// clear the question previous selections (reload model element in div)
+								let childObj = model.find(obj => obj.id == ele.childId);
+								let itemHtml = getModelItemHtml(childObj.sequence - 1);
+								childEle.innerHTML = itemHtml;
+
+								// delete the question ouptput data
+								delete globals.outputData[childObj.sequence];*/
+								
+								// hide children and sub children until there ae no children
+								hideChildElements(childEle);					
 							}
 						}
 					});
-				} else {
-					revealBranch(newBranchId);
+
+					// show children based on selection value
+					if (currentSelectionRadioVal) {
+						// display any children if there is any checkbox option selected
+						if (model[sequence - 1].elementType == "checkbox") {
+							(model[sequence - 1].children).forEach(ele => {
+								childEle = document.getElementById(ele.childId);
+								if (childEle) {
+									childEle.style.display = 'block';
+								}
+							})
+						} else {
+							// radio options - display any children based on current selection value
+							(model[sequence - 1].children).forEach(ele => {
+
+								if (ele.showWhenParentValue == currentSelectionRadioVal) {
+									// console.log("Found child");
+									childEle = document.getElementById(ele.childId);
+
+									if (childEle) {
+										childEle.style.display = 'block';
+									}
+								}
+							})
+						}
+
+					}
 				}
 
 				// refresh the subject and comments fields with all the current data in «globals.outputData»
@@ -358,34 +318,95 @@
 			} catch (error) {
 				console.error("Error in handleAction(...)")
 				console.error(error);
-				// expected output: ReferenceError: nonExistentFunction is not defined
-				// Note - error messages will vary depending on browser
 			}
 		}
 
+		/**
+		 * Hide children elements in the hierarchy and remove from outputData
+		 */
+		function hideChildElements(childEle) {
+			if (!childEle) {
+				return;
+			}
+			// hide the dependency child in the next step depending on the parent selection child element is displayed
+			childEle.style.display = 'none';
 
+			// clear the question previous selections (reload model element in div)
+			let childObj = model.find(obj => obj.id == childEle.id);
+			let itemHtml = getModelItemHtml(childObj.sequence - 1);
+			childEle.innerHTML = itemHtml;
 
-		// global variables that can be set inside one function and used in multiple other places
-		var globals = {
+			// delete the question ouptput data
+			delete globals.outputData[childObj.sequence];
 
-			// Tells the script to add a <br> after each radio button to display them vertically when true.
-			//   Currently set to true when a fieldset contains more than 2 radio buttons.
-			radioButtonsVertical: false,
+			(model[childObj.sequence - 1].children).forEach(ele => {
+				hideChildElements(document.getElementById(ele.childId));
+			})
+		}
 
-			// Every time a form action reveals a new branch of the decision tree, the ID of that branch gets
-			//   pushed into this array, allowing the widget to keep track of them and the order in which
-			//   they were revealed. When the user clicks on a form element, a function is run that checks to
-			//   see if the associated ID already exists in the «branchesRevealed» array. If it does, that means
-			//   the user is "backtracking" and we need to hide all of the branches listed in this array after
-			//   the index of this ID and trigger the functions that clear their data. We can do that by looping
-			//   through this array starting at the index of that ID + 1
-			branchesRevealed: [],
+		// takes the value «theData» of a form element in a branch «thisBranchId», tags it to be delivered
+		//   to either the "subject" field or the "comments" field «dataDestination», and stores it in
+		//   «globals.outputData.«thisBranchId»»
+		function saveData(sequence, thisBranchId, theData, dataDestination, objectType) {
+			if (objectType && objectType == 'checkbox') {
 
-			// «outputData» is an object that stores the output of each branch by ID. That way the subject
-			//   and comments fields can be updated each time a form action is chosen, and if a user backtracks
-			//   the data from branches that are no longer valid can be automatically removed, eliminating the
-			//   chance of unintended data indavertently remaining.
-			outputData: {},
+				// check box data already selected
+				if (globals.outputData[sequence]) {
+					const checkboxes = document.querySelectorAll(`input[name="${thisBranchId}"]:checked`);
+					let dataDestinationStr = theData.substring(0, theData.indexOf(":") + 2);
+					checkboxes.forEach((checkbox) => {
+						dataDestinationStr = dataDestinationStr + checkbox.value + ", ";
+					});
+
+					globals.outputData[sequence][dataDestination] = dataDestinationStr.substring(0, dataDestinationStr.length - 2);
+				} else {
+					globals.outputData[sequence] = {
+						'thisBranchId': sequence,
+						[dataDestination]: theData
+					}
+				}
+
+			} else if (objectType && objectType == 'date') {
+				if (theData) {
+					try {
+						// selected date is in the format yyyy-mm-dd
+						let selectedDateArr = theData.substring(theData.indexOf(":") + 2).split("-");
+						let selectedDateStr = theData.substring(0, theData.indexOf(":") + 2) + selectedDateArr[1] + "/" + selectedDateArr[2] + "/" + selectedDateArr[0];
+						globals.outputData[sequence] = {
+							'thisBranchId': sequence,
+							[dataDestination]: selectedDateStr
+						}
+					} catch (error) {
+						console.error("Error in formatting date.")
+						console.error(error);
+					}
+				}
+			} else {
+				globals.outputData[sequence] = {
+					'thisBranchId': sequence,
+					[dataDestination]: theData
+				}
+			}
+
+		}
+
+		// refresh the subject and comments fields with all the current data in «globals.outputData»
+		function updateOutput() {
+			// sort the data as per sequence to show the comments and subject in sequence
+			let arr = [];
+			arr.push(globals.outputData);
+			arr.sort(function (outData1, outData2) {
+				return outData1.sequence - outData2.sequence;
+			});
+			outSubject.innerHTML = '';
+			outComments.innerHTML = '';
+			for (response in globals.outputData) {
+				if (globals.outputData[response].comments) {
+					outComments.innerHTML += `${globals.outputData[response].comments}|<br>`;
+				} else if (globals.outputData[response].subject) {
+					outSubject.innerHTML = `${globals.outputData[response].subject}|`;
+				}
+			}
 		}
 
 		// This is where you define the "outline" of the decision tree in JSON format.
@@ -399,6 +420,58 @@
 		//   stores the new branch ID in the «globals.branchesRevealed» array so the widget can keep track of
 		//   what it branches it needs to hide and what data it needs to delete if someone backtracks, stores
 		//   the data generated in that branch, and updates the text of the subject and comments boxes.
+
+		/*
+		Model content for each question example
+		{
+				sequence: 1,				// sequence of the question
+				header: '',					// header of the question
+				id: 'interviewCaseOrContact',	// div id in which question content is created
+				objectType: 'script',		// objectType??? may be not used
+				optional: null,				// if true selection or entering data is optional for this question and when selection is made for an question this question and next question is displayed
+				children: [					// based on the selection of the question child questions are displayed, can be none or many
+					{
+						childId: 'caseHighRiskHouseholdContacts',	// child question div id
+						showWhenParentValue: 'Case'					// Selected current value or null
+					}
+				],
+				parent: null,				// if child question the parent of the child question
+				elementType: 'radio',		// element type of the question 
+				contents: ``,				// any information related to question
+				question: `Did you complete an interview for a case or contact?`,	// question
+				paths: [					// elements of the question one or many depending on the question type
+					{
+						header: 'Case',					// text
+						objectType: 'radio',			// object type
+						name: 'interviewCaseOrContact',	// name of the element
+						id: 'interviewCaseOrContact',	// id of the element
+						val: 'Case',					// value of the element
+						action: `handleAction(2, 'Type of Record : Case', 'comments')`,	// action of the element
+						disabled: '',					// disabled or not
+						contents: `You selected Case'`,	// selection of the question
+					},
+					{
+						header: 'Contact',
+						objectType: 'radio',
+						name: 'interviewCaseOrContact',
+						id: 'interviewCaseOrContact',
+						val: 'Contact',
+						// action: `handleAction(2, 'interviewCaseOrContact', 'Type of Record : Contact', 'comments', 'radio', null)`,
+						action: `handleAction(2, 'Type of Record : Contact', 'comments')`,
+						disabled: '',
+						contents: `You selected Contact'`,
+					}
+				]
+			}
+		*/
+
+		/* optional: false for questions that are  needed to answer and true for questions that are not mandatory
+			and show all next optional questions based on current selection
+
+			children based on current parent selection show the children else hide, children should have 
+			parent to differentiate and avoid displaying
+		*/
+		let questionSequence = 0;
 		var model = [
 			/*
 			1. What type of interview did you complete? 
@@ -406,9 +479,15 @@
 			Monitoring and Support 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: 'Call Script',
 				id: 'interviewTypeCompleted',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: null,
+				elementType: 'radio',
 				contents: ``,
 				question: `What type of interview did you complete?`,
 				paths: [
@@ -418,7 +497,7 @@
 						name: 'interviewTypeCompleted',
 						id: 'interviewTypeCompleted',
 						val: 'Initial Interview',
-						action: `handleAction('interviewTypeCompleted', 'interviewCaseOrContact', 'Interview Type : Initial Interview', 'subject')`,
+						action: `handleAction(` + questionSequence + `, 'Interview Type : Initial Interview', 'subject')`,
 						disabled: '',
 						contents: `You selected Monitoring and Support`,
 					},
@@ -428,7 +507,7 @@
 						name: 'interviewTypeCompleted',
 						id: 'interviewTypeCompleted',
 						val: 'Monitoring and Support',
-						action: `handleAction('interviewTypeCompleted', 'interviewCaseOrContact', 'Interview Type : Monitoring and Support', 'subject')`,
+						action: `handleAction(` + questionSequence + `, 'Interview Type : Monitoring and Support', 'subject')`,
 						disabled: '',
 						contents: `You selected Monitoring and Support`,
 					}
@@ -440,9 +519,19 @@
 			Contact 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'interviewCaseOrContact',
 				objectType: 'script',
+				optional: null,
+				children: [
+					{
+						childId: 'caseHighRiskHouseholdContacts',
+						showWhenParentValue: 'Case'
+					}
+				],
+				parent: null,
+				elementType: 'radio',
 				contents: ``,
 				question: `Did you complete an interview for a case or contact?`,
 				paths: [
@@ -452,8 +541,7 @@
 						name: 'interviewCaseOrContact',
 						id: 'interviewCaseOrContact',
 						val: 'Case',
-						// action: `handleAction('interviewCaseOrContact', 'socialHealthDeterminantsYesOrNo, caseHighRiskHouseholdContacts', 'hightouchFollowUp_interviewCaseOrContact : Case', 'comments')`,
-						action: `handleAction('interviewCaseOrContact', 'socialHealthDeterminantsYesOrNo', 'Type of Record : Case', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Type of Record : Case', 'comments')`,
 						disabled: '',
 						contents: `You selected Case'`,
 					},
@@ -463,21 +551,96 @@
 						name: 'interviewCaseOrContact',
 						id: 'interviewCaseOrContact',
 						val: 'Contact',
-						action: `handleAction('interviewCaseOrContact', 'socialHealthDeterminantsYesOrNo', 'Type of Record : Contact', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Type of Record : Contact', 'comments')`,
 						disabled: '',
 						contents: `You selected Contact'`,
 					}
 				]
 			},
 			/*
-			3. Were any social determinants of health needs identified during the interview? 
+			3. Did you complete the social determinants of health needs screening during the interview  
+			Yes 
+			No 
+			Client Declined  
+			*/
+			{
+				sequence: ++questionSequence,
+				header: '',
+				id: 'socialDeterminantsHealthNeedsSDOH',
+				objectType: 'script',
+				optional: null,
+				children: [
+					{
+						childId: 'socialHealthDeterminantsYesOrNo',
+						showWhenParentValue: 'Yes'
+					},
+					/*
+					{
+						childId: 'socialHealthDeterminantsIdentified',
+						showWhenParentValue: 'Yes'
+					}
+					*/
+				],
+				parent: null,
+				elementType: 'radio',
+				contents: ``,
+				question: `Did you complete the social determinants of health needs screening during the interview?`,
+				paths: [
+					{
+						header: 'Yes',
+						objectType: 'radio',
+						name: 'socialDeterminantsHealthNeedsSDOH',
+						id: 'socialDeterminantsHealthNeedsSDOH',
+						val: 'Yes',
+						action: `handleAction(` + questionSequence + `, 'Completed SDOH: Yes', 'comments')`,
+						disabled: '',
+						contents: `You selected Yes'`,
+					},
+					{
+						header: 'No',
+						objectType: 'radio',
+						name: 'socialDeterminantsHealthNeedsSDOH',
+						id: 'socialDeterminantsHealthNeedsSDOH',
+						val: 'No',
+						action: `handleAction(` + questionSequence + `, 'Completed SDOH: No', 'comments')`,
+						disabled: '',
+						contents: `You selected No'`,
+					},
+					{
+						header: 'Client Declined',
+						objectType: 'radio',
+						name: 'socialDeterminantsHealthNeedsSDOH',
+						id: 'socialDeterminantsHealthNeedsSDOH',
+						val: 'Client Declined',
+						action: `handleAction(` + questionSequence + `, 'Completed SDOH: Client Declined', 'comments')`,
+						disabled: '',
+						contents: `You selected No'`,
+					}
+				]
+			},
+			/*
+			4. Were any social determinants of health needs identified during the interview? 
 			Yes 
 			No 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'socialHealthDeterminantsYesOrNo',
 				objectType: 'script',
+				optional: null,
+				children: [
+					{
+						childId: 'socialHealthDeterminantsIdentified',
+						showWhenParentValue: 'Yes'
+					},
+					{
+						childId: 'socialHealthDeterminantsUrgentNeeds',
+						showWhenParentValue: 'Yes'
+					}
+				],
+				parent: 'socialDeterminantsHealthNeedsSDOH',
+				elementType: 'radio',
 				contents: ``,
 				question: `Were any social determinants of health needs identified during the interview?`,
 				paths: [
@@ -487,7 +650,7 @@
 						name: 'socialHealthDeterminantsYesOrNo',
 						id: 'socialHealthDeterminantsYesOrNo',
 						val: 'Yes',
-						action: `handleAction('socialHealthDeterminantsYesOrNo', 'socialHealthDeterminantsIdentified', 'Social Determinants : Yes', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinants : Yes', 'comments')`,
 						disabled: '',
 						contents: `You selected Yes'`,
 					},
@@ -497,14 +660,14 @@
 						name: 'socialHealthDeterminantsYesOrNo',
 						id: 'socialHealthDeterminantsYesOrNo',
 						val: 'No',
-						action: `handleAction('socialHealthDeterminantsYesOrNo', 'clientConsentSendingReferrals', 'Social Determinants : No', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinants : No', 'comments')`,
 						disabled: '',
 						contents: `You selected No'`,
 					}
 				]
 			},
 			/*
-			4. (if question 3 – yes is selected). Please identify the social determinants of health needs  
+			5. (if question 3 – yes is selected). Please identify the social determinants of health needs  
 			Food 
 			Housing 
 			Financial  
@@ -517,11 +680,21 @@
 			Medical
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'socialHealthDeterminantsIdentified',
 				objectType: 'script',
+				optional: null,
+				children: [
+					{
+						childId: 'socialHealthDeterminantsUrgentNeeds',
+						showWhenParentValue: 'Yes'
+					}
+				],
+				parent: 'socialHealthDeterminantsYesOrNo',
+				elementType: 'checkbox',
 				contents: ``,
-				question: `Please identify the social determinants of health needs`,
+				question: `Pease identify the social determinants of health needs`,
 				paths: [
 					{
 						header: 'Food',
@@ -529,7 +702,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Food',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Food', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Food', 'comments')`,
 						disabled: '',
 						contents: `You selected Food'`,
 					},
@@ -539,7 +712,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Housing',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Housing', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Housing', 'comments')`,
 						disabled: '',
 						contents: `You selected Housing'`,
 					},
@@ -549,7 +722,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Financial',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Financial', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Financial', 'comments')`,
 						disabled: '',
 						contents: `You selected Financial'`,
 					},
@@ -559,7 +732,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Utilities',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Utilities', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Utilities', 'comments')`,
 						disabled: '',
 						contents: `You selected Utilities'`,
 					},
@@ -569,7 +742,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Household',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Household', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Household', 'comments')`,
 						disabled: '',
 						contents: `You selected Household'`,
 					},
@@ -579,7 +752,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Children',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Children', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Children', 'comments')`,
 						disabled: '',
 						contents: `You selected Children'`,
 					},
@@ -589,7 +762,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Transportation',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Transportation', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Transportation', 'comments')`,
 						disabled: '',
 						contents: `You selected Transportation'`,
 					},
@@ -599,7 +772,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Literacy',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Literacy', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Literacy', 'comments')`,
 						disabled: '',
 						contents: `You selected Literacy'`,
 					},
@@ -609,7 +782,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Technology',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Technology', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Technology', 'comments')`,
 						disabled: '',
 						contents: `You selected Technology'`,
 					},
@@ -619,7 +792,7 @@
 						name: 'socialHealthDeterminantsIdentified',
 						id: 'socialHealthDeterminantsIdentified',
 						val: 'Medical',
-						action: `handleAction('socialHealthDeterminantsIdentified', 'socialHealthDeterminantsUrgentNeeds', 'Social Determinant Needs : Medical', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Social Determinant Needs : Medical', 'comments')`,
 						disabled: '',
 						contents: `You selected Medical'`,
 					}
@@ -627,14 +800,20 @@
 				]
 			},
 			/*
-			5. Are any of these needs urgent? 
+			6. Are any of these needs urgent? 
 			Yes 
 			No 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'socialHealthDeterminantsUrgentNeeds',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: 'socialHealthDeterminantsIdentified',
+				elementType: 'radio',
 				contents: ``,
 				question: `Are any of these needs urgent?`,
 				paths: [
@@ -644,7 +823,7 @@
 						name: 'socialHealthDeterminantsUrgentNeeds',
 						id: 'socialHealthDeterminantsUrgentNeeds',
 						val: 'Yes',
-						action: `handleAction('socialHealthDeterminantsUrgentNeeds', 'clientConsentSendingReferrals', 'Urgent Needs : Yes', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Urgent Needs : Yes', 'comments')`,
 						disabled: '',
 						contents: `You selected Yes'`,
 					},
@@ -654,21 +833,31 @@
 						name: 'socialHealthDeterminantsUrgentNeeds',
 						id: 'socialHealthDeterminantsYesOrNo',
 						val: 'No',
-						action: `handleAction('socialHealthDeterminantsUrgentNeeds', 'clientConsentSendingReferrals', 'Urgent Needs : No', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Urgent Needs : No', 'comments')`,
 						disabled: '',
 						contents: `You selected No'`,
 					}
 				]
 			},
 			/*
-			6. Did the client consent to you sending referrals on their behalf? (radio button) 
+			7. Did the client consent to you sending referrals on their behalf? (radio button) 
 			Yes 
 			No 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'clientConsentSendingReferrals',
 				objectType: 'script',
+				optional: null,
+				children: [
+					{
+						childId: 'referralsMade',
+						showWhenParentValue: 'Yes'
+					}
+				],
+				parent: null,
+				elementType: 'radio',
 				contents: ``,
 				question: `Did the client consent to you sending referrals on their behalf?`,
 				paths: [
@@ -678,7 +867,7 @@
 						name: 'clientConsentSendingReferrals',
 						id: 'clientConsentSendingReferrals',
 						val: 'Yes',
-						action: `handleAction('clientConsentSendingReferrals', 'referralsMade', 'Client Consent : Yes', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Client Consent : Yes', 'comments')`,
 						disabled: '',
 						contents: `You selected Yes'`,
 					},
@@ -688,24 +877,29 @@
 						name: 'clientConsentSendingReferrals',
 						id: 'clientConsentSendingReferrals',
 						val: 'No',
-						action: `handleAction('clientConsentSendingReferrals', 'referralsMade', 'Client Consent : No', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Client Consent : No', 'comments')`,
 						disabled: '',
 						contents: `You selected No'`,
 					}
 				]
 			},
-
 			/*
-			7. Select what referrals were made		 
+			8. Select what referrals were made		 
 			I/Q Support  
 			Patient Health Access 
 			Clinician  
 			Self (resource referral made by CET)
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'referralsMade',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: 'clientConsentSendingReferrals',
+				elementType: 'checkbox',
 				contents: ``,
 				question: `Select what referrals were made`,
 				paths: [
@@ -715,7 +909,7 @@
 						name: 'referralsMade',
 						id: 'referralsMade',
 						val: 'I/Q Support',
-						action: `handleAction('referralsMade', 'assitanceClientNeeded', 'Referrals Made : I/Q Support', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Referrals Made : I/Q Support', 'comments')`,
 						disabled: '',
 						contents: `You selected I/Q Support'`,
 					},
@@ -725,7 +919,7 @@
 						name: 'referralsMade',
 						id: 'referralsMade',
 						val: 'Patient Health Access',
-						action: `handleAction('referralsMade', 'assitanceClientNeeded', 'Referrals Made : Patient Health Access', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Referrals Made : Patient Health Access', 'comments')`,
 						disabled: '',
 						contents: `You selected Patient Health Access'`,
 					},
@@ -735,7 +929,7 @@
 						name: 'referralsMade',
 						id: 'referralsMade',
 						val: 'Clinician',
-						action: `handleAction('referralsMade', 'assitanceClientNeeded', 'Referrals Made : Clinician', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Referrals Made : Clinician', 'comments')`,
 						disabled: '',
 						contents: `You selected Clinician'`,
 					},
@@ -745,30 +939,36 @@
 						name: 'referralsMade',
 						id: 'referralsMade',
 						val: 'Self (resource referral made by CET)',
-						action: `handleAction('referralsMade', 'assitanceClientNeeded', 'Referrals Made : Self (resource referral made by CET)', 'comments', 'checkbox')`,
+						action: `handleAction(` + questionSequence + `, 'Referrals Made : Self (resource referral made by CET)', 'comments')`,
 						disabled: '',
 						contents: `You selected Self (resource referral made by CET)'`,
 					},
 				]
 			},
 			/*
-			8. Please identify the level of assistance needed by the client. 
+			9. Please identify the level of assistance needed by the client. 
 			0 
 			1 
 			2 
 			3 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'assitanceClientNeeded',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: null,
+				elementType: 'select',
 				contents: `On a scale from 1 to 3, with 3 is the highest...`,
 				question: `Please identify the level of assistance needed by the client.`,
 				paths: [
 					{
 						objectType: 'select',
 						id: 'assitanceClientNeeded',
-						action: `handleAction('assitanceClientNeeded', 'levelOfCaseAssistance', 'Level of Assistance Needed : '+ this.value, 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Level of Assistance Needed : '+ this.value, 'comments')`,
 						disabled: '',
 						options: [
 							{ label: '', value: '' },
@@ -781,23 +981,29 @@
 				]
 			},
 			/*
-			9. Please identify the level of care needed by the client 
+			10. Please identify the level of care needed by the client 
 			None 
 			Low 
 			Medium 
 			high 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'levelOfCaseAssistance',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: null,
+				elementType: 'select',
 				contents: ``,
 				question: `Please identify the level of care needed by the client.`,
 				paths: [
 					{
 						objectType: 'select',
 						id: 'levelOfCaseAssistance',
-						action: `handleAction('levelOfCaseAssistance', 'clientConsentMonitoringSupport', 'Level of Care Needed : '+ this.value, 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Level of Care Needed : '+ this.value, 'comments')`,
 						disabled: '',
 						options: [
 							{ label: '', value: '' },
@@ -810,14 +1016,24 @@
 				]
 			},
 			/*
-			10. Did the client consent to monitoring and support? (radio button) 
+			11. Did the client consent to monitoring and support? (radio button) 
 			Yes 
 			No 
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'clientConsentMonitoringSupport',
 				objectType: 'script',
+				optional: null,
+				children: [
+					{
+						childId: 'clientFollowupDate',
+						showWhenParentValue: 'Yes'
+					}
+				],
+				parent: null,
+				elementType: 'radio',
 				contents: ``,
 				question: `Did the client consent to monitoring and support?`,
 				paths: [
@@ -827,7 +1043,7 @@
 						name: 'clientConsentMonitoringSupport',
 						id: 'clientConsentMonitoringSupport',
 						val: 'Yes',
-						action: `handleAction('clientConsentMonitoringSupport', 'clientFollowupDate, caseHighRiskHouseholdContacts, additionalSpecialConsiderations', 'M & S Consent : Yes', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'M & S Consent : Yes', 'comments')`,
 						disabled: '',
 						contents: `You selected Yes'`,
 					},
@@ -837,42 +1053,54 @@
 						name: 'clientConsentMonitoringSupport',
 						id: 'clientConsentMonitoringSupport',
 						val: 'No',
-						action: `handleAction('clientConsentMonitoringSupport', 'clientFollowupDate, caseHighRiskHouseholdContacts, additionalSpecialConsiderations', 'M & S Consent : No', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'M & S Consent : No', 'comments')`,
 						disabled: '',
 						contents: `You selected No'`,
 					}
 				]
 			},
-
 			/*
-			11.  date do you plan on following up with the client? 
+			12.  date do you plan on following up with the client? 
 			Text Field to enter date
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'clientFollowupDate',
 				objectType: 'script',
-				contents: `Enter in the format mm/dd/yyyy`,
+				optional: true,
+				children: [
+				],
+				parent: 'clientConsentMonitoringSupport',
+				elementType: 'date',
+				// contents: `Enter in the format mm/dd/yyyy`,
+				contents: ``,
 				question: `Date do you plan on following up with the client?`,
 				paths: [
 					{
-						objectType: 'textInput',
+						objectType: 'datePicker',
 						label: '',
 						id: 'clientFollowupDate',
 						val: '',
-						action: `handleAction('clientFollowupDate', 'additionalSpecialConsiderations', 'M & S Follow-up Date : ' + this.value, 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'M & S Follow-up Date : ' + this.value, 'comments')`,
 					},
 				]
 			},
 			/*
-			12. Does the Case have any high-risk household contacts? (Only if Q2 – Case is selected) 
+			13. Does the Case have any high-risk household contacts? (Only if Q2 – Case is selected) 
 			Yes  
 			No
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'caseHighRiskHouseholdContacts',
 				objectType: 'script',
+				optional: true,
+				children: [
+				],
+				parent: 'interviewCaseOrContact',
+				elementType: 'radio',
 				contents: ``,
 				question: `Does the Case have any high-risk household contacts?`,
 				paths: [
@@ -882,7 +1110,7 @@
 						name: 'caseHighRiskHouseholdContacts',
 						id: 'caseHighRiskHouseholdContacts',
 						val: 'Yes',
-						action: `handleAction('caseHighRiskHouseholdContacts', 'additionalSpecialConsiderations', 'High Risk Household Contacts : Yes', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'High Risk Household Contacts : Yes', 'comments')`,
 						disabled: '',
 						contents: `You selected Yes'`,
 					},
@@ -892,26 +1120,32 @@
 						name: 'caseHighRiskHouseholdContacts',
 						id: 'socialHealthDeterminantsYesOrNo',
 						val: 'No',
-						action: `handleAction('caseHighRiskHouseholdContacts', 'additionalSpecialConsiderations', 'High Risk Household Contacts : No', 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'High Risk Household Contacts : No', 'comments')`,
 						disabled: '',
 						contents: `You selected No'`,
 					}
 				]
 			},
 			/*
-			13. Please provide any additional special considerations you may regarding this interview
+			14. Please provide any additional special considerations you may have regarding this interview
 			*/
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'additionalSpecialConsiderations',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: null,
+				elementType: 'textarea',
 				contents: ``,
-				question: `Please provide any additional special considerations you may regarding this interview`,
+				question: `Please provide any additional special considerations you may have regarding this interview`,
 				paths: [
 					{
 						objectType: 'textarea',
 						id: 'additionalSpecialConsiderations',
-						action: `handleAction('additionalSpecialConsiderations', '', 'Additional/Special Considerations : '+ this.value, 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Additional/Special Considerations : '+ this.value, 'comments')`,
 						disabled: '',
 						rows: 3
 					}
@@ -920,9 +1154,15 @@
 
 			// Interviewer Info
 			{
+				sequence: ++questionSequence,
 				header: 'Interviewer Info',
 				id: 'yourName',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: null,
+				elementType: 'textInput',
 				contents: ``,
 				question: `Your Name`,
 				paths: [
@@ -931,103 +1171,48 @@
 						label: '',
 						id: 'yourName',
 						val: '',
-						action: `handleAction('yourName', '', 'Your Name : ' + this.value, 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Your Name : ' + this.value, 'comments')`,
 					},
 				]
 			},
 			{
+				sequence: ++questionSequence,
 				header: '',
 				id: 'yourTitle',
 				objectType: 'script',
+				optional: null,
+				children: [
+				],
+				parent: null,
+				elementType: 'select',
 				contents: ``,
 				question: `Your Title`,
 				paths: [
 					{
 						objectType: 'select',
 						id: 'yourTitle',
-						action: `handleAction('yourTitle', '', 'Your Title : '+ this.value, 'comments')`,
+						action: `handleAction(` + questionSequence + `, 'Your Title : '+ this.value, 'comments')`,
 						disabled: '',
 						options: [
 							{ label: '', value: '' },
-							{ label: 'CICT', value: 'CICT' },
-							{ label: 'CET', value: 'CET' }
+							{ label: 'CET', value: 'CET' },
+							{ label: 'CICT', value: 'CICT' }
 						]
 					},
 				]
 			},
-		]
+		];
 
+		/**
+		 * Build HTML from model
+		 */
 		function buildModel() {
 			var o = '';
 			for (item in model) {
 				o += `
 			<div class="item">
 				${model[item].header == '' ? `` : `<div class="itemHeader">${model[item].header}</div>`}
-				<div class="itemContents" id="${model[item].id}">`
-				/*
-				<p>${model[item].contents}</p>
-		
-			${model[item].question == '' ? `` : `<fieldset><legend>${model[item].question}</legend>`}
-		`;
-			// if there are more than 2 paths, radio buttons should be displayed vertically
-			if (model[item].paths.length > 2) {
-				globals.radioButtonsVertical = true;
-			}
-
-			for (subitem in model[item].paths) {
-
-				if (model[item].paths[subitem].objectType == 'radio') {
-					console.log('radio fired');
-					o += `${radioEl(
-						model[item].paths[subitem].header,
-						model[item].paths[subitem].name,
-						model[item].paths[subitem].id,
-						model[item].paths[subitem].val,
-						model[item].paths[subitem].action,
-						model[item].paths[subitem].disabled)}`;
-				} else if (model[item].paths[subitem].objectType == 'select') {
-					console.log('select fired');
-					o += `${selectEl(
-						model[item].paths[subitem].id,
-						model[item].paths[subitem].action,
-						model[item].paths[subitem].disabled,
-						model[item].paths[subitem].options)}`;
-				} else if (model[item].paths[subitem].objectType == 'textInput') {
-					console.log('textInput fired');
-					o += `${textInputEl(
-						model[item].paths[subitem].label,
-						model[item].paths[subitem].id,
-						model[item].paths[subitem].val,
-						model[item].paths[subitem].action,
-						model[item].paths[subitem].disabled)}`;
-				} else if (model[item].paths[subitem].objectType == 'textarea') {
-					console.log('textarea fired');
-					o += `${textareaEl(
-						model[item].paths[subitem].id,
-						model[item].paths[subitem].action,
-						model[item].paths[subitem].rows)}`;
-				} else if (model[item].paths[subitem].objectType == 'datePicker') {
-					console.log('datePicker fired');
-					o += `${textareaEl(
-						model[item].paths[subitem].id,
-						model[item].paths[subitem].action,
-						model[item].paths[subitem].rows)}`;
-				} else if (model[item].paths[subitem].objectType == 'checkbox') {
-					console.log('checkbox fired');
-					o += `${checkboxEl(
-						model[item].paths[subitem].header,
-						model[item].paths[subitem].name,
-						model[item].paths[subitem].id,
-						model[item].paths[subitem].val,
-						model[item].paths[subitem].action,
-						model[item].paths[subitem].disabled)}`;
-				}
-			}
-
-			// once this group of paths is processed, change radio buttons back to horizontal
-			globals.radioButtonsVertical = false;
-			o += `${model[item].question == '' ? `` : `</fieldset>`}
-			*/
+				<div class="itemContents" id="${model[item].id}">`;
 				o += getModelItemHtml(item);
 				o += `</div></div>`;
 
@@ -1048,7 +1233,7 @@
 
 			for (subitem in model[item].paths) {
 				if (model[item].paths[subitem].objectType == 'radio') {
-					console.log('getModelItemHtml: radio fired');
+					// console.log('getModelItemHtml: radio fired');
 					o += `${radioEl(
 						model[item].paths[subitem].header,
 						model[item].paths[subitem].name,
@@ -1057,14 +1242,14 @@
 						model[item].paths[subitem].action,
 						model[item].paths[subitem].disabled)}`;
 				} else if (model[item].paths[subitem].objectType == 'select') {
-					console.log('getModelItemHtml: select fired');
+					// console.log('getModelItemHtml: select fired');
 					o += `${selectEl(
 						model[item].paths[subitem].id,
 						model[item].paths[subitem].action,
 						model[item].paths[subitem].disabled,
 						model[item].paths[subitem].options)}`;
 				} else if (model[item].paths[subitem].objectType == 'textInput') {
-					console.log('getModelItemHtml: textInput fired');
+					// console.log('getModelItemHtml: textInput fired');
 					o += `${textInputEl(
 						model[item].paths[subitem].label,
 						model[item].paths[subitem].id,
@@ -1072,19 +1257,19 @@
 						model[item].paths[subitem].action,
 						model[item].paths[subitem].disabled)}`;
 				} else if (model[item].paths[subitem].objectType == 'textarea') {
-					console.log('getModelItemHtml: textarea fired');
+					// console.log('getModelItemHtml: textarea fired');
 					o += `${textareaEl(
 						model[item].paths[subitem].id,
 						model[item].paths[subitem].action,
 						model[item].paths[subitem].rows)}`;
 				} else if (model[item].paths[subitem].objectType == 'datePicker') {
-					console.log('getModelItemHtml: datePicker fired');
-					o += `${textareaEl(
+					// console.log('getModelItemHtml: datePicker fired');
+					o += `${datePickerEl(
 						model[item].paths[subitem].id,
 						model[item].paths[subitem].action,
 						model[item].paths[subitem].rows)}`;
 				} else if (model[item].paths[subitem].objectType == 'checkbox') {
-					console.log('getModelItemHtml: checkbox fired');
+					// console.log('getModelItemHtml: checkbox fired');
 					o += `${checkboxEl(
 						model[item].paths[subitem].header,
 						model[item].paths[subitem].name,
@@ -1103,7 +1288,10 @@
 		}
 
 		buildModel();
+		// show first question
 		window[model[0].id].style.display = 'block';
+
+		// show interviewer information
 		window.yourName.style.display = 'block';
 		window.yourTitle.style.display = 'block';
 
